@@ -27,17 +27,44 @@
 
     .panel {
       padding: 1rem 1.5rem;
-      border-top: 2px solid #21262d;
+      border-top: 2px solid #30363d;
       overflow-y: auto;
     }
 
     #weather-panel {
       grid-column: 1;
-      border-right: 1px solid #21262d;
+      border-right: 1px solid #30363d;
     }
 
     #spot-panel {
       grid-column: 2;
+    }
+
+    @media (max-width: 768px) {
+      body {
+        grid-template-rows: 45vh auto auto;
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
+        overflow-y: auto;
+      }
+
+      #map {
+        grid-column: 1;
+        grid-row: 1;
+      }
+
+      #weather-panel {
+        grid-column: 1;
+        grid-row: 2;
+        border-right: none;
+        border-bottom: 1px solid #30363d;
+      }
+
+      #spot-panel {
+        grid-column: 1;
+        grid-row: 3;
+      }
     }
 
     .panel-title {
@@ -328,6 +355,30 @@
   }
 
 
+  // ── Spot capsule geometry ─────────────────────────────────────────────────
+  // Returns a polygon approximating a stadium/capsule shape.
+  // Near end (spot lat/lon) has a semicircle cap; far end extends lengthMiles
+  // along headingDeg and also has a semicircle cap. widthMiles is total width.
+  function spotCapsule(lat, lon, headingDeg, lengthMiles, widthMiles) {
+    const hw    = widthMiles / 2;
+    const [fLat, fLon] = offsetPoint(lat, lon, headingDeg, lengthMiles);
+    const steps = 12;
+    const pts   = [];
+
+    // Far-end semicircle: arc from (heading-90) to (heading+90) sweeping forward
+    for (let i = 0; i <= steps; i++) {
+      const b = ((headingDeg - 90) + 180 * i / steps + 360) % 360;
+      pts.push(offsetPoint(fLat, fLon, b, hw));
+    }
+    // Near-end semicircle: arc from (heading+90) to (heading+270) sweeping backward
+    for (let i = 0; i <= steps; i++) {
+      const b = ((headingDeg + 90) + 180 * i / steps + 360) % 360;
+      pts.push(offsetPoint(lat, lon, b, hw));
+    }
+    return pts;
+  }
+
+
   // ── Spot ──────────────────────────────────────────────────────────────────
   let spotMarker = null;
 
@@ -339,12 +390,14 @@
         if (spotMarker) { map.removeLayer(spotMarker); spotMarker = null; }
 
         if (data.active && data.lat != null && data.lon != null) {
-          spotMarker = L.circleMarker([data.lat, data.lon], {
-            radius: 8,
-            color: '#3fb950',
-            fillColor: '#3fb950',
-            fillOpacity: 0.85,
-            weight: 2,
+          // Capsule: spot lat/lon is the near end, extends 1.75 mi along heading, 0.1 mi wide
+          const capsulePts = spotCapsule(data.lat, data.lon, data.heading, 1.75, 0.1);
+          spotMarker = L.polygon(capsulePts, {
+            color:       '#3fb950',
+            fillColor:   '#3fb950',
+            fillOpacity: 0.35,
+            weight:      2,
+            opacity:     0.6,
           }).addTo(map).bindPopup(`<b>Spot</b><br>Jump Run: ${data.heading}°`);
         }
 
@@ -475,6 +528,48 @@
   }
 
 
+  // ── Freefall drift ───────────────────────────────────────────────────────
+  let driftPolygon = null;
+  let driftLabel   = null;
+
+  function updateDrift() {
+    fetch('/api/drift/')
+      .then(r => r.json())
+      .then(data => {
+        if (driftPolygon) { map.removeLayer(driftPolygon); driftPolygon = null; }
+        if (driftLabel)   { map.removeLayer(driftLabel);   driftLabel   = null; }
+
+        if (!data.active) return;
+
+        // Red capsule at opening location, same shape as spot capsule
+        const pts = spotCapsule(data.lat, data.lon, data.heading, 1.75, 0.1);
+        driftPolygon = L.polygon(pts, {
+          color:       '#f85149',
+          fillColor:   '#f85149',
+          fillOpacity: 0.35,
+          weight:      2,
+          opacity:     0.6,
+        }).addTo(map).bindPopup(
+          `<b>Est. Opening</b><br>Drift: ${data.drift_dist} mi @ ${data.drift_dir}°<br>Exit: ${data.exit_alt.toLocaleString()} ft AGL`
+        );
+
+        // Text label at center of capsule (0.875 mi = half of 1.75 mi length)
+        const [cLat, cLon] = offsetPoint(data.lat, data.lon, data.heading, 0.875);
+        driftLabel = L.marker([cLat, cLon], {
+          icon: L.divIcon({
+            html: '<div style="transform:translate(-50%,-50%);color:#fff;font-size:10px;font-weight:bold;font-family:\'Courier New\',monospace;text-shadow:0 0 3px #000,0 0 3px #000,0 0 3px #000;white-space:nowrap;">Est. Opening</div>',
+            className:  '',
+            iconSize:   [0, 0],
+            iconAnchor: [0, 0],
+          }),
+          interactive: false,
+          zIndexOffset: 1000,
+        }).addTo(map);
+      })
+      .catch(() => {});
+  }
+
+
   // ── Upper Winds ───────────────────────────────────────────────────────────
   function updateWinds() {
     fetch('/api/winds/')
@@ -531,11 +626,13 @@
   updateAircraft();
   updateWeather();
   updateSpot();
+  updateDrift();
   updateWinds();
 
   setInterval(updateAircraft, 3000);    // 3s  — local ADS-B is fast
   setInterval(updateWeather,  60000);   // 1 min
   setInterval(updateSpot,     30000);   // 30s
+  setInterval(updateDrift,    30000);   // 30s — depends on spot + winds
   setInterval(updateWinds,    300000);  // 5 min — Open-Meteo updates hourly
 </script>
 

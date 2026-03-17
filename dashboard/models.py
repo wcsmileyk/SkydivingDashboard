@@ -22,5 +22,11 @@ class Spot(models.Model):
     lat = models.FloatField()
     lon = models.FloatField()
     heading = models.IntegerField()
-    active = models.BooleanField()
+    active = models.BooleanField(default=False)
+    exit_altitude = models.IntegerField(default=12500)
     notes = models.TextField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.active:
+            Spot.objects.exclude(pk=self.pk).update(active=False)
+        super().save(*args, **kwargs)

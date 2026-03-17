@@ -7,4 +7,5 @@ urlpatterns = [
     path('api/aircraft/', views.api_aircraft, name='api_aircraft'),
     path('api/spot/', views.api_spot, name='api_spot'),
     path('api/winds/', views.api_winds, name='api_winds'),
+    path('api/drift/', views.api_drift, name='api_drift'),
 ]
