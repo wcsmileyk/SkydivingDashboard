@@ -161,6 +161,21 @@
     /* Leaflet overrides */
     .leaflet-container { background: #161b22; }
 
+    .leaflet-popup-content-wrapper,
+    .leaflet-popup-tip {
+      background: transparent;
+      box-shadow: none;
+      border: none;
+    }
+
+    .leaflet-popup-content {
+      color: #f0f6fc;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      text-shadow: 0 0 4px #000, 0 0 4px #000, 0 0 4px #000;
+      margin: 0;
+    }
+
     .plane-div-icon { background: none !important; border: none !important; }
 
     .plane-wrap {
@@ -194,6 +209,14 @@
       text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 3px #000;
       pointer-events: none;
       margin-bottom: 2px;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .plane-sublabel {
+      font-size: 9px;
+      font-weight: normal;
+      color: #8b949e;
     }
 
     .dz-label {
@@ -273,9 +296,10 @@
   const DZ_LON = {{ dz.longitude|default:"-105.1" }};
   const DZ_NAME = "{{ dz.name|escapejs|default:'Drop Zone' }}";
   const DZ_NO_WIND_HEADING = {{ dz.no_wind_heading|default:"360" }};
+  const DZ_ELEV = {{ dz.field_elevation|default:"0" }};
 
   // ── Map ──────────────────────────────────────────────────────────────────
-  const map = L.map('map', { zoomControl: true }).setView([DZ_LAT, DZ_LON], 15);
+  const map = L.map('map', { zoomControl: true }).setView([DZ_LAT, DZ_LON], 14);
 
   const streetLayer = L.tileLayer(
     'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
@@ -306,12 +330,15 @@
   // ── Aircraft ─────────────────────────────────────────────────────────────
   const aircraftMarkers = {};
 
-  function makePlaneIcon(track, name) {
+  function makePlaneIcon(track, name, gs, altBaro) {
     // The ✈ Unicode character points East (90°) by default, so we subtract 90
     const rotationDeg = (track || 0) - 90;
+    const gsLine  = gs != null ? `<div class="plane-sublabel">${Math.round(gs)} kts</div>` : '';
+    const agl     = (typeof altBaro === 'number') ? Math.round(altBaro - DZ_ELEV) : null;
+    const aglLine = agl != null ? `<div class="plane-sublabel">${agl.toLocaleString()} ft AGL</div>` : '';
     return L.divIcon({
       html: `<div class="plane-wrap">
-               <div class="plane-label">${name}</div>
+               <div class="plane-label">${name}${gsLine}${aglLine}</div>
                <div class="plane-symbol" style="transform: translate(-50%, -50%) rotate(${rotationDeg}deg);">✈</div>
              </div>`,
       className: 'plane-div-icon',
@@ -328,7 +355,7 @@
 
         aircraft.forEach(ac => {
           seen.add(ac.hex);
-          const icon = makePlaneIcon(ac.track, ac.name);
+          const icon = makePlaneIcon(ac.track, ac.name, ac.gs, ac.alt_baro);
           const altStr = ac.alt_baro != null ? ac.alt_baro.toLocaleString() + ' ft' : '—';
           const gsStr  = ac.gs != null ? Math.round(ac.gs) + ' kts' : '—';
           const popupHtml = `<b>${ac.name}</b><br>Alt: ${altStr}<br>GS: ${gsStr}`;
