@@ -9,6 +9,7 @@ class DropZone(models.Model):
     field_elevation = models.FloatField()
     awos_station_id = models.CharField(max_length=5)
     adsb_url = models.URLField()
+    no_wind_heading = models.IntegerField()
 
 
 class Aircraft(models.Model):

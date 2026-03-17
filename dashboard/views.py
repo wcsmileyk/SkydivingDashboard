@@ -9,10 +9,10 @@ from .models import DropZone, Aircraft, Spot
 # Pressure levels queried from Open-Meteo. 450 hPa added to cover exit
 # altitudes up to ~15k AGL at high-elevation DZs.
 _PRESSURE_LEVELS = [850, 825, 800, 775, 750, 725, 700, 650, 600, 550, 500, 450]
-_TARGET_AGL_FT   = [1000, 2000, 3000, 4000, 5000, 9000, 12000]
+_TARGET_AGL_FT   = [1000, 2000, 3000, 4000, 5000, 9000, 12000]  # winds table rows
 
 # Freefall constants
-_OPENING_ALT_AGL  = 3000   # ft AGL — standard deployment altitude
+_OPENING_ALT_AGL  = 4000   # ft AGL — deployment altitude
 _FREEFALL_RATE    = 176    # ft/s  — ~120 mph terminal velocity (belly)
 
 

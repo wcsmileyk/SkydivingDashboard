@@ -272,6 +272,7 @@
   const DZ_LAT = {{ dz.latitude|default:"39.9" }};
   const DZ_LON = {{ dz.longitude|default:"-105.1" }};
   const DZ_NAME = "{{ dz.name|escapejs|default:'Drop Zone' }}";
+  const DZ_NO_WIND_HEADING = {{ dz.no_wind_heading|default:"360" }};
 
   // ── Map ──────────────────────────────────────────────────────────────────
   const map = L.map('map', { zoomControl: true }).setView([DZ_LAT, DZ_LON], 15);
@@ -381,6 +382,7 @@
 
   // ── Spot ──────────────────────────────────────────────────────────────────
   let spotMarker = null;
+  let spotLabel  = null;
 
   function updateSpot() {
     fetch('/api/spot/')
@@ -388,6 +390,7 @@
       .then(data => {
         // Update map marker
         if (spotMarker) { map.removeLayer(spotMarker); spotMarker = null; }
+        if (spotLabel)  { map.removeLayer(spotLabel);  spotLabel  = null; }
 
         if (data.active && data.lat != null && data.lon != null) {
           // Capsule: spot lat/lon is the near end, extends 1.75 mi along heading, 0.1 mi wide
@@ -399,6 +402,21 @@
             weight:      2,
             opacity:     0.6,
           }).addTo(map).bindPopup(`<b>Spot</b><br>Jump Run: ${data.heading}°`);
+
+          // "Jump Run" label at capsule center, rotated along heading
+          const [cLat, cLon] = offsetPoint(data.lat, data.lon, data.heading, 0.875);
+          let rot = (data.heading - 90 + 360) % 360;
+          if (rot > 90 && rot < 270) rot = (rot + 180) % 360;
+          spotLabel = L.marker([cLat, cLon], {
+            icon: L.divIcon({
+              html: `<div style="transform:translate(-50%,-50%) rotate(${rot}deg);color:#fff;font-size:10px;font-weight:bold;font-family:'Courier New',monospace;white-space:nowrap;text-shadow:0 0 3px #000,0 0 3px #000;">Jump Run</div>`,
+              className:  '',
+              iconSize:   [0, 0],
+              iconAnchor: [0, 0],
+            }),
+            interactive:  false,
+            zIndexOffset: 1000,
+          }).addTo(map);
         }
 
         // Update panel
@@ -447,30 +465,42 @@
     landingLayers.forEach(l => map.removeLayer(l));
     landingLayers = [];
 
-    // Calm winds — nothing meaningful to draw
-    if (windSpeedKts < 3) return;
-
-    // Land INTO the wind: landing heading = wind FROM direction
-    const landingHeading = windFromDeg;
+    // Calm winds — use DZ default landing heading
+    const landingHeading = windSpeedKts < 3 ? DZ_NO_WIND_HEADING : windFromDeg;
     const upwindDir = (landingHeading + 180) % 360;
 
-    // DZ is the center — shaft extends 0.4 mi each way
-    const shaftTail = offsetPoint(DZ_LAT, DZ_LON, upwindDir,      0.4);
-    const tip       = offsetPoint(DZ_LAT, DZ_LON, landingHeading, 0.4);
+    // Build a single filled arrow polygon so there are no visible joint seams.
+    // DZ center is the midpoint — shaft extends 0.4 mi each way.
+    const shaftHW = 0.026;  // shaft half-width, miles
+    const headHW  = 0.068;  // arrowhead wing half-width, miles
+    const headLen = 0.068;  // arrowhead length, miles
 
-    // Arrowhead: two lines from tip back toward tail, splayed 30° each side
-    const headSize  = 0.12;
-    const arrowLeft  = offsetPoint(tip[0], tip[1], (upwindDir - 30 + 360) % 360, headSize);
-    const arrowRight = offsetPoint(tip[0], tip[1], (upwindDir + 30)        % 360, headSize);
+    const tail     = offsetPoint(DZ_LAT, DZ_LON, upwindDir,      0.15);
+    const headBase = offsetPoint(DZ_LAT, DZ_LON, landingHeading, 0.15 - headLen);
+    const tip      = offsetPoint(DZ_LAT, DZ_LON, landingHeading, 0.15);
 
-    const style = { color: '#00cfff', weight: 20, opacity: 0.55, lineJoin: 'round', lineCap: 'round' };
+    const leftDir  = (landingHeading - 90 + 360) % 360;
+    const rightDir = (landingHeading + 90) % 360;
 
-    landingLayers = [
-      L.polyline([shaftTail, tip],  style).addTo(map),
-      L.polyline([tip, arrowLeft],  style).addTo(map),
-      L.polyline([tip, arrowRight], style).addTo(map),
+    const pts = [
+      offsetPoint(tail[0],     tail[1],     leftDir,  shaftHW),
+      offsetPoint(headBase[0], headBase[1], leftDir,  shaftHW),
+      offsetPoint(headBase[0], headBase[1], leftDir,  headHW),
+      tip,
+      offsetPoint(headBase[0], headBase[1], rightDir, headHW),
+      offsetPoint(headBase[0], headBase[1], rightDir, shaftHW),
+      offsetPoint(tail[0],     tail[1],     rightDir, shaftHW),
     ];
-    landingLayers[0].bindTooltip(`Landing ${landingHeading}° (into wind)`, { sticky: true });
+
+    const arrow = L.polygon(pts, {
+      color:       '#00cfff',
+      fillColor:   '#00cfff',
+      fillOpacity: 0.35,
+      weight:      2,
+      opacity:     0.6,
+    }).addTo(map);
+
+    landingLayers = [arrow];
   }
 
 
@@ -553,11 +583,13 @@
           `<b>Est. Opening</b><br>Drift: ${data.drift_dist} mi @ ${data.drift_dir}°<br>Exit: ${data.exit_alt.toLocaleString()} ft AGL`
         );
 
-        // Text label at center of capsule (0.875 mi = half of 1.75 mi length)
+        // Text label at center of capsule (0.875 mi = half of 1.75 mi length), rotated along heading
         const [cLat, cLon] = offsetPoint(data.lat, data.lon, data.heading, 0.875);
+        let driftRot = (data.heading - 90 + 360) % 360;
+        if (driftRot > 90 && driftRot < 270) driftRot = (driftRot + 180) % 360;
         driftLabel = L.marker([cLat, cLon], {
           icon: L.divIcon({
-            html: '<div style="transform:translate(-50%,-50%);color:#fff;font-size:10px;font-weight:bold;font-family:\'Courier New\',monospace;text-shadow:0 0 3px #000,0 0 3px #000,0 0 3px #000;white-space:nowrap;">Est. Opening</div>',
+            html: `<div style="transform:translate(-50%,-50%) rotate(${driftRot}deg);color:#fff;font-size:10px;font-weight:bold;font-family:'Courier New',monospace;text-shadow:0 0 3px #000,0 0 3px #000,0 0 3px #000;white-space:nowrap;">Est. Opening</div>`,
             className:  '',
             iconSize:   [0, 0],
             iconAnchor: [0, 0],
